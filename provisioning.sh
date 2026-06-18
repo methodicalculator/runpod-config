@@ -27,6 +27,7 @@ PIP_PACKAGES=(
 # --- Estensioni A1111 da clonare in /extensions ---
 EXTENSIONS=(
     "https://github.com/Uminosachi/sd-webui-inpaint-anything"
+    "https://github.com/continue-revolution/sd-webui-segment-anything"
 )
 
 # --- Checkpoint (SD1.5 + SDXL, vario) ---
@@ -73,6 +74,7 @@ function provisioning_start() {
     provisioning_get_apt_packages
     provisioning_get_pip_packages
     provisioning_get_extensions
+    provisioning_get_groundingdino_models
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ckpt" \
         "${CHECKPOINT_MODELS[@]}"
@@ -142,6 +144,16 @@ function provisioning_get_models() {
 
 function provisioning_print_header() {
     printf "\n##############################################\n#                                            #\n#          Provisioning container            #\n#                                            #\n#         This will take some time           #\n#                                            #\n# Your container will be ready on completion #\n#                                            #\n##############################################\n\n"
+}
+
+function provisioning_get_groundingdino_models() {
+    dir="/opt/stable-diffusion-webui/extensions/sd-webui-segment-anything/models/grounding-dino"
+    mkdir -p "$dir"
+    if [[ ! -f "$dir/groundingdino_swint_ogc.pth" ]]; then
+        printf "Downloading GroundingDINO model...\n"
+        wget -qnc -P "$dir" "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth"
+        wget -qnc -P "$dir" "https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+    fi
 }
 
 function provisioning_print_end() {
