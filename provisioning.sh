@@ -36,7 +36,6 @@ EXTENSIONS=(
 CHECKPOINT_MODELS=(
     "https://civitai.red/api/download/models/2574712"
     "https://civitai.red/api/download/models/2551619"
-    ""
 )
 
 # --- LoRA ---
