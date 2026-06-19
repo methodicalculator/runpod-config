@@ -35,6 +35,7 @@ EXTENSIONS=(
 # Sostituisci con gli URL "download" diretti di Civitai per i modelli che usi.
 # Formato tipico Civitai: https://civitai.com/api/download/models/<VERSION_ID>
 CHECKPOINT_MODELS=(
+    "https://civitai.red/api/download/models/302254"
     "https://civitai.red/api/download/models/2574712"
     "https://civitai.red/api/download/models/2551619"
 )
