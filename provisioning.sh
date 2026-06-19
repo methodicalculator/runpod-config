@@ -26,15 +26,17 @@ PIP_PACKAGES=(
 
 # --- Estensioni A1111 da clonare in /extensions ---
 EXTENSIONS=(
-    "https://github.com/Uminosachi/sd-webui-inpaint-anything"
     "https://github.com/continue-revolution/sd-webui-segment-anything"
+    "https://codeberg.org/Gourieff/sd-webui-reactor"
 )
 
 # --- Checkpoint (SD1.5 + SDXL, vario) ---
 # Sostituisci con gli URL "download" diretti di Civitai per i modelli che usi.
 # Formato tipico Civitai: https://civitai.com/api/download/models/<VERSION_ID>
 CHECKPOINT_MODELS=(
-    "https://civitai.com/api/download/models/302254"
+    "https://civitai.red/api/download/models/2574712"
+    "https://civitai.red/api/download/models/2551619"
+    ""
 )
 
 # --- LoRA ---
@@ -75,6 +77,8 @@ function provisioning_start() {
     provisioning_get_pip_packages
     provisioning_get_extensions
     provisioning_get_groundingdino_models
+    provisioning_get_sam_models
+    provisioning_get_reactor_model
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ckpt" \
         "${CHECKPOINT_MODELS[@]}"
@@ -153,6 +157,24 @@ function provisioning_get_groundingdino_models() {
         printf "Downloading GroundingDINO model...\n"
         wget -qnc -P "$dir" "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth"
         wget -qnc -P "$dir" "https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+    fi
+}
+
+function provisioning_get_sam_models() {
+    dir="/opt/stable-diffusion-webui/models/sam"
+    mkdir -p "$dir"
+    if [[ ! -f "$dir/sam_vit_l_0b3195.pth" ]]; then
+        printf "Downloading SAM model for sd-webui-segment-anything...\n"
+        wget -qnc -P "$dir" "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
+    fi
+}
+
+function provisioning_get_reactor_model() {
+    dir="/opt/stable-diffusion-webui/models/insightface"
+    mkdir -p "$dir"
+    if [[ ! -f "$dir/inswapper_128.onnx" ]]; then
+        printf "Downloading ReActor inswapper model...\n"
+        wget -qnc -P "$dir" "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
     fi
 }
 
