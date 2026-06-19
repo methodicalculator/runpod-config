@@ -78,6 +78,7 @@ function provisioning_start() {
     provisioning_get_groundingdino_models
     provisioning_get_sam_models
     provisioning_get_reactor_model
+    provisioning_fix_reactor_deps
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ckpt" \
         "${CHECKPOINT_MODELS[@]}"
@@ -177,6 +178,11 @@ function provisioning_get_reactor_model() {
     fi
 }
 
+function provisioning_fix_reactor_deps() {
+    printf "Fixing ReActor dependencies (numpy compatibility)...\n"
+    pip install --no-cache-dir "numpy<2" "insightface==0.7.3" "onnx==1.16.1" "onnxruntime-gpu" "albumentations==1.4.3"
+}
+
 function provisioning_print_end() {
     printf "\nProvisioning complete: Web UI will start now\n\n"
 }
@@ -184,7 +190,7 @@ function provisioning_print_end() {
 function provisioning_download() {
     if [[ -n $HF_TOKEN && $1 =~ ^https://([a-zA-Z0-9-]+\.)?huggingface\.co(/|$|\?) ]]; then
         auth_token="$HF_TOKEN"
-    elif [[ -n $CIVITAI_TOKEN && $1 =~ ^https://([a-zA-Z0-9-]+\.)?civitai\.com(/|$|\?) ]]; then
+    elif [[ -n $CIVITAI_TOKEN && $1 =~ ^https://([a-zA-Z0-9-]+\.)?civitai\.(com|red)(/|$|\?) ]]; then
         auth_token="$CIVITAI_TOKEN"
     fi
     if [[ -n $auth_token ]]; then
