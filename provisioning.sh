@@ -27,6 +27,7 @@ PIP_PACKAGES=(
 # --- Estensioni A1111 da clonare in /extensions ---
 EXTENSIONS=(
     "https://github.com/continue-revolution/sd-webui-segment-anything"
+    "https://github.com/silveroxides/sd-webui-replacer"
     "https://codeberg.org/Gourieff/sd-webui-reactor"
 )
 
@@ -179,8 +180,12 @@ function provisioning_get_reactor_model() {
 }
 
 function provisioning_fix_reactor_deps() {
-    printf "Fixing ReActor dependencies (numpy compatibility)...\n"
-    pip install --no-cache-dir "numpy<2" "insightface==0.7.3" "onnx==1.16.1" "onnxruntime-gpu" "albumentations==1.4.3"
+    printf "Fixing ReActor dependencies (numpy/onnxruntime compatibility)...\n"
+    # NON toccare la versione di numpy: torch/xformers in questo ambiente
+    # sono compilati per NumPy 2.x. Il conflitto va risolto aggiornando
+    # onnxruntime-gpu a una build compatibile con NumPy 2.x, non
+    # retrocedendo numpy.
+    pip install --no-cache-dir --upgrade "onnxruntime-gpu>=1.19.0" "insightface==0.7.3" "albumentations==1.4.3"
 }
 
 function provisioning_print_end() {
