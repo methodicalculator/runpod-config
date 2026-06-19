@@ -35,7 +35,6 @@ EXTENSIONS=(
 # Sostituisci con gli URL "download" diretti di Civitai per i modelli che usi.
 # Formato tipico Civitai: https://civitai.com/api/download/models/<VERSION_ID>
 CHECKPOINT_MODELS=(
-    "https://civitai.red/api/download/models/302254"
     "https://civitai.red/api/download/models/2574712"
     "https://civitai.red/api/download/models/2551619"
 )
@@ -199,7 +198,19 @@ function provisioning_download() {
     elif [[ -n $CIVITAI_TOKEN && $1 =~ ^https://([a-zA-Z0-9-]+\.)?civitai\.(com|red)(/|$|\?) ]]; then
         auth_token="$CIVITAI_TOKEN"
     fi
-    if [[ -n $auth_token ]]; then
+    if [[ -n $auth_token && $1 =~ civitai\.(com|red) ]]; then
+        # Civitai: l'header Authorization non deve essere propagato al
+        # redirect verso il bucket Cloudflare R2 (causa 400 Bad Request).
+        # Risolviamo prima il redirect manualmente con il token, poi
+        # scarichiamo dall'URL pre-firmato senza alcun header extra.
+        real_url=$(wget --header="Authorization: Bearer $auth_token" --max-redirect=0 "$1" 2>&1 | grep -o "Location: .*" | sed 's/Location: //' | sed 's/ \[following\]//')
+        if [[ -n "$real_url" ]]; then
+            wget -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$real_url"
+        else
+            printf "WARNING: Could not resolve Civitai redirect for %s, trying direct download...\n" "$1"
+            wget --header="Authorization: Bearer $auth_token" -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$1"
+        fi
+    elif [[ -n $auth_token ]]; then
         wget --header="Authorization: Bearer $auth_token" -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$1"
     else
         wget -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$1"
