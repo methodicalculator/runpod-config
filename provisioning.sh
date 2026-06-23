@@ -28,7 +28,6 @@ PIP_PACKAGES=(
 EXTENSIONS=(
     "https://github.com/continue-revolution/sd-webui-segment-anything"
     "https://github.com/silveroxides/sd-webui-replacer"
-    "https://codeberg.org/Gourieff/sd-webui-reactor"
 )
 
 # --- Checkpoint (SD1.5 + SDXL, vario) ---
@@ -36,7 +35,6 @@ EXTENSIONS=(
 # Formato tipico Civitai: https://civitai.com/api/download/models/<VERSION_ID>
 CHECKPOINT_MODELS=(
     "https://civitai.red/api/download/models/2574712"
-    "https://civitai.red/api/download/models/2551619"
 )
 
 # --- LoRA ---
@@ -78,8 +76,6 @@ function provisioning_start() {
     provisioning_get_extensions
     provisioning_get_groundingdino_models
     provisioning_get_sam_models
-    provisioning_get_reactor_model
-    provisioning_fix_reactor_deps
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ckpt" \
         "${CHECKPOINT_MODELS[@]}"
@@ -168,24 +164,6 @@ function provisioning_get_sam_models() {
         printf "Downloading SAM model for sd-webui-segment-anything...\n"
         wget -qnc -P "$dir" "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
     fi
-}
-
-function provisioning_get_reactor_model() {
-    dir="/opt/stable-diffusion-webui/models/insightface"
-    mkdir -p "$dir"
-    if [[ ! -f "$dir/inswapper_128.onnx" ]]; then
-        printf "Downloading ReActor inswapper model...\n"
-        wget -qnc -P "$dir" "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
-    fi
-}
-
-function provisioning_fix_reactor_deps() {
-    printf "Fixing ReActor dependencies (numpy/onnxruntime compatibility)...\n"
-    # NON toccare la versione di numpy: torch/xformers in questo ambiente
-    # sono compilati per NumPy 2.x. Il conflitto va risolto aggiornando
-    # onnxruntime-gpu a una build compatibile con NumPy 2.x, non
-    # retrocedendo numpy.
-    pip install --no-cache-dir --upgrade "onnxruntime-gpu>=1.19.0" "insightface==0.7.3" "albumentations==1.4.3"
 }
 
 function provisioning_print_end() {
