@@ -1,18 +1,22 @@
 #!/bin/bash
 # ============================================================
 # Provisioning script personalizzato - AI-Dock ComfyUI
-# Basato su: https://github.com/ai-dock/comfyui
+# Workflow target: Wan 2.2 I2V (YAW_2_2_T2V_I2V_v0_39_MoE)
 #
 # COME USARLO:
-# 1. Sostituisci i placeholder qui sotto con i tuoi link Civitai/HF.
-# 2. Carica questo file sul tuo repo GitHub (es. "runpod-config"), branch main,
-#    con un nome diverso da quello usato per A1111 (es. "provisioning-comfyui.sh").
-# 3. Nel template RunPod ComfyUI, imposta la env var:
-#      PROVISIONING_SCRIPT = https://raw.githubusercontent.com/<tuo-utente>/<tuo-repo>/main/provisioning-comfyui.sh
-# 4. Imposta anche CIVITAI_TOKEN con la tua API key Civitai.
-# 5. Container image consigliata: ghcr.io/ai-dock/comfyui:latest-cuda
-#    Porta HTTP da esporre: 8188 (ComfyUI), 1111 (Instance Portal), 8888 (Jupyter)
+# 1. Nel template RunPod, ogni URL_* qui sotto e' una env var separata.
+#    Lascia vuota una variabile per SALTARE quel download (boot veloce).
+#    Compila l'URL per scaricare quel modello specifico (fp8, fp16,
+#    o qualsiasi altra variante: basta cambiare il link).
+# 2. Imposta CIVITAI_TOKEN se uno o piu' URL puntano a civitai.com/.red
+#    (richiesto solo per i modelli "gated"; per Hugging Face usa HF_TOKEN).
+# 3. Container image consigliata: ghcr.io/ai-dock/comfyui:latest-cuda
+#    Porte HTTP: 8188 (ComfyUI), 1111 (Instance Portal), 8888 (Jupyter)
 #    Porta TCP: 22 (SSH)
+# 4. I custom node NON sono gestiti da questo script: al primo avvio,
+#    carica il workflow .json in ComfyUI e usa ComfyUI-Manager
+#    ("Install Missing Custom Nodes") per installarli in modo affidabile.
+#    ComfyUI-Manager stesso e' pre-installato da questo script.
 # ============================================================
 
 DISK_GB_REQUIRED=40
@@ -27,39 +31,48 @@ PIP_PACKAGES=(
     ""
 )
 
-# --- Custom node ComfyUI da clonare in /custom_nodes ---
+# --- Custom node "di base" sempre installati (gestiscono il resto Manager) ---
 NODES=(
     "https://github.com/ltdrdata/ComfyUI-Manager"
-    "https://github.com/storyicon/comfyui_segment_anything"
 )
 
-# --- Checkpoint (SD1.5 + SDXL, vario) ---
-# Sostituisci con gli URL "download" diretti di Civitai per i modelli che usi.
-# Formato tipico Civitai: https://civitai.com/api/download/models/<VERSION_ID>
-CHECKPOINT_MODELS=(
-    "https://civitai.red/api/download/models/2574712"
-    "https://civitai.red/api/download/models/2551619"
-)
+# ============================================================
+# MODELLI - Diffusion e LoRA sono flessibili (un URL per slot, da
+# impostare nel template RunPod ad ogni deploy in base a cosa vuoi
+# testare: fp8/fp16, variante diversa, ecc.). VAE, CLIP e GIMMVFI
+# sono invece FISSI qui sotto, perche' restano gli stessi
+# indipendentemente dalla variante del modello diffusion scelta.
+# ============================================================
 
-# --- LoRA ---
-LORA_MODELS=(
-    ""
-)
+# --- Diffusion models (UNETLoader) - Wan 2.2 I2V - FLESSIBILI ---
+# Esempi:
+#   fp8_scaled (~14.3GB cad.): https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors
+#   fp16       (~28.6GB cad.): https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp16.safetensors
+URL_I2V_HIGH_NOISE="${URL_I2V_HIGH_NOISE:-}"
+URL_I2V_LOW_NOISE="${URL_I2V_LOW_NOISE:-}"
 
-# --- VAE ---
-VAE_MODELS=(
-    ""
-)
+# --- LoRA - FLESSIBILE ---
+URL_WAN_LORA="${URL_WAN_LORA:-}"
 
-# --- Upscaler ---
-ESRGAN_MODELS=(
-    ""
-)
+# --- VAE - FISSO ---
+# wan_2.1_vae.safetensors (~0.25GB) - richiesto dai modelli 14B
+URL_WAN_VAE="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
 
-# --- ControlNet (lascia vuoto, gestite a parte) ---
-CONTROLNET_MODELS=(
-    ""
-)
+# --- Text encoder / CLIP - FISSO ---
+# umt5_xxl_fp8_e4m3fn_scaled.safetensors (~6GB)
+URL_WAN_CLIP="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+
+# --- GIMM-VFI (frame interpolation) - FISSO ---
+# gimmvfi_r_arb_lpips_fp32.safetensors (~79MB)
+URL_GIMMVFI="https://huggingface.co/Kijai/GIMM-VFI_safetensors/resolve/main/gimmvfi_r_arb_lpips_fp32.safetensors"
+
+# --- Slot generici extra, per qualsiasi altro modello/variante futura ---
+# Compila url+cartella di destinazione (relativa a models/) se serve in futuro
+# senza dover riscrivere lo script: esempio gia' pronto, lascia vuoto se non serve.
+URL_EXTRA_1="${URL_EXTRA_1:-}"
+URL_EXTRA_1_DEST="${URL_EXTRA_1_DEST:-diffusion_models}"
+URL_EXTRA_2="${URL_EXTRA_2:-}"
+URL_EXTRA_2_DEST="${URL_EXTRA_2_DEST:-diffusion_models}"
 
 ### NON MODIFICARE SOTTO QUESTA RIGA SE NON SAI COSA STAI FACENDO ###
 
@@ -78,22 +91,7 @@ function provisioning_start() {
     provisioning_get_apt_packages
     provisioning_get_pip_packages
     provisioning_get_nodes
-    provisioning_get_segment_anything_models
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/checkpoints" \
-        "${CHECKPOINT_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/loras" \
-        "${LORA_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/controlnet" \
-        "${CONTROLNET_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/vae" \
-        "${VAE_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/upscale_models" \
-        "${ESRGAN_MODELS[@]}"
+    provisioning_get_wan_models
     provisioning_print_end
 }
 
@@ -133,46 +131,38 @@ function provisioning_get_nodes() {
     done
 }
 
-function provisioning_get_models() {
-    if [[ -z $2 ]]; then return 1; fi
-    dir="$1"
-    mkdir -p "$dir"
-    shift
-    if [[ $DISK_GB_ALLOCATED -ge $DISK_GB_REQUIRED ]]; then
-        arr=("$@")
-    else
-        printf "WARNING: Low disk space allocation - Only the first model will be downloaded!\n"
-        arr=("$1")
+# Scarica un singolo URL (se non vuoto) in una sottocartella di models/.
+# $1 = URL (puo' essere vuoto: in tal caso non fa nulla)
+# $2 = nome cartella sotto ${WORKSPACE}/storage/stable_diffusion/models/
+function provisioning_get_single_model() {
+    local url="$1"
+    local subdir="$2"
+    if [[ -z "$url" ]]; then
+        return 0
     fi
-    printf "Downloading %s model(s) to %s...\n" "${#arr[@]}" "$dir"
-    for url in "${arr[@]}"; do
-        [[ -z "$url" ]] && continue
-        printf "Downloading: %s\n" "${url}"
-        provisioning_download "${url}" "${dir}"
-        printf "\n"
-    done
+    local dir="${WORKSPACE}/storage/stable_diffusion/models/${subdir}"
+    mkdir -p "$dir"
+    printf "Downloading to %s: %s\n" "$subdir" "$url"
+    provisioning_download "$url" "$dir"
+    printf "\n"
+}
+
+function provisioning_get_wan_models() {
+    if [[ $DISK_GB_ALLOCATED -lt $DISK_GB_REQUIRED ]]; then
+        printf "WARNING: Low disk space allocation (%sGB available, %sGB required) - downloads may fail or fill the disk!\n" "$DISK_GB_ALLOCATED" "$DISK_GB_REQUIRED"
+    fi
+    provisioning_get_single_model "$URL_I2V_HIGH_NOISE" "diffusion_models"
+    provisioning_get_single_model "$URL_I2V_LOW_NOISE"  "diffusion_models"
+    provisioning_get_single_model "$URL_WAN_VAE"         "vae"
+    provisioning_get_single_model "$URL_WAN_CLIP"        "text_encoders"
+    provisioning_get_single_model "$URL_WAN_LORA"        "loras"
+    provisioning_get_single_model "$URL_GIMMVFI"         "gimmvfi"
+    provisioning_get_single_model "$URL_EXTRA_1" "$URL_EXTRA_1_DEST"
+    provisioning_get_single_model "$URL_EXTRA_2" "$URL_EXTRA_2_DEST"
 }
 
 function provisioning_print_header() {
     printf "\n##############################################\n#                                            #\n#          Provisioning container            #\n#                                            #\n#         This will take some time           #\n#                                            #\n# Your container will be ready on completion #\n#                                            #\n##############################################\n\n"
-}
-
-function provisioning_get_segment_anything_models() {
-    # comfyui_segment_anything (storyicon) - equivalente ComfyUI di
-    # sd-webui-segment-anything. Path relativi alla root di ComfyUI:
-    # models/grounding-dino e models/sams.
-    dino_dir="/opt/ComfyUI/models/grounding-dino"
-    sam_dir="/opt/ComfyUI/models/sams"
-    mkdir -p "$dino_dir" "$sam_dir"
-    if [[ ! -f "$dino_dir/groundingdino_swint_ogc.pth" ]]; then
-        printf "Downloading GroundingDINO model...\n"
-        wget -qnc -P "$dino_dir" "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth"
-        wget -qnc -P "$dino_dir" "https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
-    fi
-    if [[ ! -f "$sam_dir/sam_vit_l_0b3195.pth" ]]; then
-        printf "Downloading SAM model...\n"
-        wget -qnc -P "$sam_dir" "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
-    fi
 }
 
 function provisioning_print_end() {
