@@ -137,7 +137,7 @@ function provisioning_get_nodes() {
 function provisioning_get_single_model() {
     local url="$1"
     local subdir="$2"
-    if [[ -z "$url" ]]; then
+    if [[ -z "$url" || "${url,,}" == "skip" || "$url" == *"placeholder"* ]]; then
         return 0
     fi
     local dir="${WORKSPACE}/storage/stable_diffusion/models/${subdir}"
