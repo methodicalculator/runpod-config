@@ -67,12 +67,14 @@ URL_WAN_CLIP="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolv
 URL_GIMMVFI="https://huggingface.co/Kijai/GIMM-VFI_safetensors/resolve/main/gimmvfi_r_arb_lpips_fp32.safetensors"
 
 # --- Slot generici extra, per qualsiasi altro modello/variante futura ---
-# Compila url+cartella di destinazione (relativa a models/) se serve in futuro
-# senza dover riscrivere lo script: esempio gia' pronto, lascia vuoto se non serve.
+# Compila url+cartella di destinazione (nome esatto da
+# /opt/ai-dock/storage_monitor/etc/mappings.sh, es: unet, vae, clip, lora,
+# checkpoints, controlnet, upscale_models, ecc.) se serve in futuro senza
+# dover riscrivere lo script: esempio gia' pronto, lascia vuoto se non serve.
 URL_EXTRA_1="${URL_EXTRA_1:-}"
-URL_EXTRA_1_DEST="${URL_EXTRA_1_DEST:-diffusion_models}"
+URL_EXTRA_1_DEST="${URL_EXTRA_1_DEST:-unet}"
 URL_EXTRA_2="${URL_EXTRA_2:-}"
-URL_EXTRA_2_DEST="${URL_EXTRA_2_DEST:-diffusion_models}"
+URL_EXTRA_2_DEST="${URL_EXTRA_2_DEST:-unet}"
 
 ### NON MODIFICARE SOTTO QUESTA RIGA SE NON SAI COSA STAI FACENDO ###
 
@@ -151,14 +153,38 @@ function provisioning_get_wan_models() {
     if [[ $DISK_GB_ALLOCATED -lt $DISK_GB_REQUIRED ]]; then
         printf "WARNING: Low disk space allocation (%sGB available, %sGB required) - downloads may fail or fill the disk!\n" "$DISK_GB_ALLOCATED" "$DISK_GB_REQUIRED"
     fi
-    provisioning_get_single_model "$URL_I2V_HIGH_NOISE" "diffusion_models"
-    provisioning_get_single_model "$URL_I2V_LOW_NOISE"  "diffusion_models"
+    # Nomi cartella confermati da /opt/ai-dock/storage_monitor/etc/mappings.sh:
+    # unet (non "diffusion_models"), clip (non "text_encoders"), lora, vae.
+    # GIMMVFI non ha un mapping dedicato: lo mettiamo comunque sotto
+    # storage/ (cosi' resta sul Volume persistente) ma con un symlink
+    # manuale verso /opt/ComfyUI/models/gimmvfi, dato che il watcher
+    # automatico non lo gestisce.
+    provisioning_get_single_model "$URL_I2V_HIGH_NOISE" "unet"
+    provisioning_get_single_model "$URL_I2V_LOW_NOISE"  "unet"
     provisioning_get_single_model "$URL_WAN_VAE"         "vae"
-    provisioning_get_single_model "$URL_WAN_CLIP"        "text_encoders"
-    provisioning_get_single_model "$URL_WAN_LORA"        "loras"
-    provisioning_get_single_model "$URL_GIMMVFI"         "gimmvfi"
+    provisioning_get_single_model "$URL_WAN_CLIP"        "clip"
+    provisioning_get_single_model "$URL_WAN_LORA"        "lora"
+    provisioning_get_gimmvfi_model
     provisioning_get_single_model "$URL_EXTRA_1" "$URL_EXTRA_1_DEST"
     provisioning_get_single_model "$URL_EXTRA_2" "$URL_EXTRA_2_DEST"
+}
+
+function provisioning_get_gimmvfi_model() {
+    if [[ -z "$URL_GIMMVFI" || "${URL_GIMMVFI,,}" == "skip" ]]; then
+        return 0
+    fi
+    # Nessun mapping automatico per gimmvfi in mappings.sh: scarichiamo
+    # su storage/ (persistente) e creiamo noi il symlink verso ComfyUI.
+    local storage_dir="${WORKSPACE}/storage/stable_diffusion/models/gimmvfi"
+    local target_dir="/opt/ComfyUI/models/gimmvfi"
+    mkdir -p "$storage_dir"
+    printf "Downloading to gimmvfi: %s\n" "$URL_GIMMVFI"
+    provisioning_download "$URL_GIMMVFI" "$storage_dir"
+    mkdir -p "$(dirname "$target_dir")"
+    if [[ ! -e "$target_dir" ]]; then
+        ln -s "$storage_dir" "$target_dir"
+    fi
+    printf "\n"
 }
 
 function provisioning_print_header() {
