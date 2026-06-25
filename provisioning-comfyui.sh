@@ -31,9 +31,24 @@ PIP_PACKAGES=(
     ""
 )
 
-# --- Custom node "di base" sempre installati (gestiscono il resto Manager) ---
+# --- Custom node "di base" sempre installati ---
 NODES=(
     "https://github.com/ltdrdata/ComfyUI-Manager"
+    "https://github.com/rgthree/rgthree-comfy"
+    "https://github.com/pythongosssss/ComfyUI-Custom-Scripts"
+    "https://github.com/yolain/ComfyUI-Easy-Use"
+    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
+    "https://github.com/ClownsharkBatwing/RES4LYF"
+    "https://github.com/kijai/ComfyUI-GIMM-VFI"
+    "https://github.com/sipherxyz/comfyui-art-venture"
+    "https://github.com/Smirnov75/ComfyUI-mxToolkit"
+    "https://github.com/M1kep/ComfyLiterals"
+    "https://github.com/boobkake22/ComfyUI-SimpleSwitch"
+    "https://github.com/boobkake22/ComfyUI-WanResolutions"
+    "https://github.com/boobkake22/ComfyUI-FilmGrainLTXV"
+    "https://github.com/kijai/ComfyUI-KJNodes"
+    "https://github.com/stduhpf/ComfyUI-WanMoeKSampler"
+    "https://github.com/aining2022/ComfyUI_Swwan"
 )
 
 # ============================================================
@@ -90,11 +105,40 @@ function provisioning_start() {
     DISK_GB_ALLOCATED=$(($DISK_GB_AVAILABLE + $DISK_GB_USED))
 
     provisioning_print_header
+    provisioning_update_comfyui_core
     provisioning_get_apt_packages
     provisioning_get_pip_packages
     provisioning_get_nodes
+    provisioning_fix_opencv_numpy
     provisioning_get_wan_models
     provisioning_print_end
+}
+
+function provisioning_update_comfyui_core() {
+    # Il meccanismo nativo AUTO_UPDATE di AI-Dock (preflight.d) ha un bug
+    # noto di parsing jq ("Cannot index object with number") che fa
+    # fallire silenziosamente l'update di ComfyUI core. Lo bypassiamo
+    # facendo noi un git pull diretto, prima che la webui parta.
+    local comfy_dir="/opt/ComfyUI"
+    if [[ -d "$comfy_dir/.git" ]]; then
+        printf "Updating ComfyUI core (bypassing AI-Dock preflight)...\n"
+        ( cd "$comfy_dir" && git fetch --quiet && git pull --quiet ) \
+            && printf "ComfyUI core updated.\n" \
+            || printf "WARNING: ComfyUI core update failed, continuing with current version.\n"
+        pip install --no-cache-dir -r "$comfy_dir/requirements.txt" 2>/dev/null
+    fi
+}
+
+function provisioning_fix_opencv_numpy() {
+    # Diversi custom node (Easy-Use, e potenzialmente altri che usano cv2
+    # per elaborazione immagini/video) crashano con
+    # "AttributeError: _ARRAY_API not found" perche' la build di
+    # opencv-python installata e' compilata per NumPy 1.x mentre
+    # l'ambiente ha NumPy 2.x. NON tocchiamo numpy (torch se ne aspetta
+    # la versione 2.x): aggiorniamo invece opencv-python a una build
+    # recente, nativamente compatibile con NumPy 2.x.
+    printf "Updating opencv-python for NumPy 2.x compatibility...\n"
+    pip install --no-cache-dir --upgrade "opencv-python-headless>=4.10.0"
 }
 
 function provisioning_get_apt_packages() {
