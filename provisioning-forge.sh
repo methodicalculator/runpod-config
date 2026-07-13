@@ -58,7 +58,9 @@ function provisioning_add_ids_to_array() {
     local -n target_array="$1"
     local ids_string="$2"
     [[ -z "$ids_string" ]] && return
-    [[ "${ids_string,,}" == "replace_with_ids" ]] && return
+    case "${ids_string,,}" in
+        "replace_with_ids"|"false"|"skip"|"none") return ;;
+    esac
     IFS=',' read -ra ids <<< "$ids_string"
     for id in "${ids[@]}"; do
         id="$(echo "$id" | xargs)" # trim spazi
