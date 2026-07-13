@@ -47,22 +47,24 @@ LORA_MODELS=(
     ""
 )
 
-# --- VAE ---
-VAE_MODELS=(
-    ""
-)
-
-# --- Upscaler ESRGAN ---
-ESRGAN_MODELS=(
-    ""
-)
-
-# --- ControlNet (lascia vuoto, hai detto che gestisci queste a parte) ---
-CONTROLNET_MODELS=(
-    ""
-)
-
 ### NON MODIFICARE SOTTO QUESTA RIGA SE NON SAI COSA STAI FACENDO ###
+
+# Costruisce URL Civitai a partire da una lista di ID separati da virgola,
+# passata come env var da RunPod, e li aggiunge all'array indicato.
+# Formato:
+#   3117958   -> https://civitai.red/api/download/models/3117958
+function provisioning_add_ids_to_array() {
+    local -n target_array="$1"
+    local ids_string="$2"
+    [[ -z "$ids_string" ]] && return
+    [[ "${ids_string,,}" == "replace_with_ids" ]] && return
+    IFS=',' read -ra ids <<< "$ids_string"
+    for id in "${ids[@]}"; do
+        id="$(echo "$id" | xargs)" # trim spazi
+        [[ -z "$id" ]] && continue
+        target_array+=("https://civitai.red/api/download/models/${id}")
+    done
+}
 
 function provisioning_start() {
     if [[ ! -d /opt/environments/python ]]; then
@@ -70,6 +72,11 @@ function provisioning_start() {
     fi
     source /opt/ai-dock/etc/environment.sh
     source /opt/ai-dock/bin/venv-set.sh webui
+
+    # Aggiunge ai rispettivi array gli ID passati da RunPod come env var,
+    # oltre a quelli già hardcoded sopra.
+    provisioning_add_ids_to_array CHECKPOINT_MODELS "${CHECKPOINT_IDS_TO_DOWNLOAD}"
+    provisioning_add_ids_to_array LORA_MODELS "${LORAS_IDS_TO_DOWNLOAD}"
 
     DISK_GB_AVAILABLE=$(($(df --output=avail -m "${WORKSPACE}" | tail -n1) / 1000))
     DISK_GB_USED=$(($(df --output=used -m "${WORKSPACE}" | tail -n1) / 1000))
@@ -87,15 +94,6 @@ function provisioning_start() {
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/lora" \
         "${LORA_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/controlnet" \
-        "${CONTROLNET_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/vae" \
-        "${VAE_MODELS[@]}"
-    provisioning_get_models \
-        "${WORKSPACE}/storage/stable_diffusion/models/esrgan" \
-        "${ESRGAN_MODELS[@]}"
     provisioning_print_end
 }
 
