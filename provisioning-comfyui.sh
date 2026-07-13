@@ -1,242 +1,55 @@
 #!/bin/bash
 # ============================================================
-# Provisioning script personalizzato - AI-Dock ComfyUI
-# Workflow target: Wan 2.2 I2V (YAW_2_2_T2V_I2V_v0_39_MoE)
+# Script di avvio ComfyUI standalone (no AI-Dock)
+# Repo ufficiale: https://github.com/Comfy-Org/ComfyUI
 #
 # COME USARLO:
-# 1. Nel template RunPod, ogni URL_* qui sotto e' una env var separata.
-#    Lascia vuota una variabile per SALTARE quel download (boot veloce).
-#    Compila l'URL per scaricare quel modello specifico (fp8, fp16,
-#    o qualsiasi altra variante: basta cambiare il link).
-# 2. Imposta CIVITAI_TOKEN se uno o piu' URL puntano a civitai.com/.red
-#    (richiesto solo per i modelli "gated"; per Hugging Face usa HF_TOKEN).
-# 3. Container image consigliata: ghcr.io/ai-dock/comfyui:latest-cuda
-#    Porte HTTP: 8188 (ComfyUI), 1111 (Instance Portal), 8888 (Jupyter)
-#    Porta TCP: 22 (SSH)
-# 4. I custom node NON sono gestiti da questo script: al primo avvio,
-#    carica il workflow .json in ComfyUI e usa ComfyUI-Manager
-#    ("Install Missing Custom Nodes") per installarli in modo affidabile.
-#    ComfyUI-Manager stesso e' pre-installato da questo script.
+# 1. Imposta questo file come Container Start Command su RunPod
+#    (oppure caricalo sul repo e richiamalo da lì).
+# 2. Monta un Network Volume su /workspace per persistenza tra riavvii.
+# 3. Env var opzionali da impostare su RunPod:
+#      CIVITAI_TOKEN            -> la tua API key Civitai
+#      HF_TOKEN                 -> token Hugging Face, se serve
+#      COMFYUI_REF               -> "master" (default) o un tag di release
+#                                    tipo "v0.22.0" per restare pinnato
+#                                    a una versione stabile
+#      CHECKPOINT_IDS_TO_DOWNLOAD -> ID versione Civitai separati da virgola
+#      LORAS_IDS_TO_DOWNLOAD      -> ID versione Civitai separati da virgola
+#                                    (metti "false" o "skip" per disattivare)
 # ============================================================
 
-DISK_GB_REQUIRED=40
+WORKSPACE="${WORKSPACE:-/workspace}"
+COMFYUI_DIR="${WORKSPACE}/ComfyUI"
+COMFYUI_REF="${COMFYUI_REF:-master}"
 
-# --- Pacchetti di sistema extra (lascia vuoto se non servono) ---
-APT_PACKAGES=(
+# --- Checkpoint fissi (opzionali, si sommano a quelli via env var) ---
+CHECKPOINT_MODELS=(
     ""
 )
 
-# --- Pacchetti python extra (lascia vuoto se non servono) ---
-PIP_PACKAGES=(
+# --- LoRA fissi (opzionali, si sommano a quelli via env var) ---
+LORA_MODELS=(
     ""
 )
-
-# --- Custom node "di base" sempre installati ---
-NODES=(
-    "https://github.com/ltdrdata/ComfyUI-Manager"
-    "https://github.com/rgthree/rgthree-comfy"
-    "https://github.com/pythongosssss/ComfyUI-Custom-Scripts"
-    "https://github.com/yolain/ComfyUI-Easy-Use"
-    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
-    "https://github.com/ClownsharkBatwing/RES4LYF"
-    "https://github.com/kijai/ComfyUI-GIMM-VFI"
-    "https://github.com/sipherxyz/comfyui-art-venture"
-    "https://github.com/Smirnov75/ComfyUI-mxToolkit"
-    "https://github.com/M1kep/ComfyLiterals"
-    "https://github.com/boobkake22/ComfyUI-SimpleSwitch"
-    "https://github.com/boobkake22/ComfyUI-WanResolutions"
-    "https://github.com/boobkake22/ComfyUI-FilmGrainLTXV"
-    "https://github.com/kijai/ComfyUI-KJNodes"
-    "https://github.com/stduhpf/ComfyUI-WanMoeKSampler"
-    "https://github.com/aining2022/ComfyUI_Swwan"
-)
-
-# ============================================================
-# MODELLI - Diffusion e LoRA sono flessibili (un URL per slot, da
-# impostare nel template RunPod ad ogni deploy in base a cosa vuoi
-# testare: fp8/fp16, variante diversa, ecc.). VAE, CLIP e GIMMVFI
-# sono invece FISSI qui sotto, perche' restano gli stessi
-# indipendentemente dalla variante del modello diffusion scelta.
-# ============================================================
-
-# --- Diffusion models (UNETLoader) - Wan 2.2 I2V - FLESSIBILI ---
-# Esempi:
-#   fp8_scaled (~14.3GB cad.): https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors
-#   fp16       (~28.6GB cad.): https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp16.safetensors
-URL_I2V_HIGH_NOISE="${URL_I2V_HIGH_NOISE:-}"
-URL_I2V_LOW_NOISE="${URL_I2V_LOW_NOISE:-}"
-
-# --- LoRA - FLESSIBILE ---
-URL_WAN_LORA="${URL_WAN_LORA:-}"
-
-# --- VAE - FISSO ---
-# wan_2.1_vae.safetensors (~0.25GB) - richiesto dai modelli 14B
-URL_WAN_VAE="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors"
-
-# --- Text encoder / CLIP - FISSO ---
-# umt5_xxl_fp8_e4m3fn_scaled.safetensors (~6GB)
-URL_WAN_CLIP="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
-
-# --- GIMM-VFI (frame interpolation) - FISSO ---
-# gimmvfi_r_arb_lpips_fp32.safetensors (~79MB)
-URL_GIMMVFI="https://huggingface.co/Kijai/GIMM-VFI_safetensors/resolve/main/gimmvfi_r_arb_lpips_fp32.safetensors"
-
-# --- Slot generici extra, per qualsiasi altro modello/variante futura ---
-# Compila url+cartella di destinazione (nome esatto da
-# /opt/ai-dock/storage_monitor/etc/mappings.sh, es: unet, vae, clip, lora,
-# checkpoints, controlnet, upscale_models, ecc.) se serve in futuro senza
-# dover riscrivere lo script: esempio gia' pronto, lascia vuoto se non serve.
-URL_EXTRA_1="${URL_EXTRA_1:-}"
-URL_EXTRA_1_DEST="${URL_EXTRA_1_DEST:-unet}"
-URL_EXTRA_2="${URL_EXTRA_2:-}"
-URL_EXTRA_2_DEST="${URL_EXTRA_2_DEST:-unet}"
 
 ### NON MODIFICARE SOTTO QUESTA RIGA SE NON SAI COSA STAI FACENDO ###
 
-function provisioning_start() {
-    if [[ ! -d /opt/environments/python ]]; then
-        export MAMBA_BASE=true
-    fi
-    source /opt/ai-dock/etc/environment.sh
-    source /opt/ai-dock/bin/venv-set.sh comfyui
-
-    DISK_GB_AVAILABLE=$(($(df --output=avail -m "${WORKSPACE}" | tail -n1) / 1000))
-    DISK_GB_USED=$(($(df --output=used -m "${WORKSPACE}" | tail -n1) / 1000))
-    DISK_GB_ALLOCATED=$(($DISK_GB_AVAILABLE + $DISK_GB_USED))
-
-    provisioning_print_header
-    provisioning_update_comfyui_core
-    provisioning_get_apt_packages
-    provisioning_get_pip_packages
-    provisioning_get_nodes
-    provisioning_fix_opencv_numpy
-    provisioning_get_wan_models
-    provisioning_print_end
-}
-
-function provisioning_update_comfyui_core() {
-    # Il meccanismo nativo AUTO_UPDATE di AI-Dock (preflight.d) ha un bug
-    # noto di parsing jq ("Cannot index object with number") che fa
-    # fallire silenziosamente l'update di ComfyUI core. Lo bypassiamo
-    # facendo noi un git pull diretto, prima che la webui parta.
-    local comfy_dir="/opt/ComfyUI"
-    if [[ -d "$comfy_dir/.git" ]]; then
-        printf "Updating ComfyUI core (bypassing AI-Dock preflight)...\n"
-        ( cd "$comfy_dir" && git fetch --quiet && git pull --quiet ) \
-            && printf "ComfyUI core updated.\n" \
-            || printf "WARNING: ComfyUI core update failed, continuing with current version.\n"
-        pip install --no-cache-dir -r "$comfy_dir/requirements.txt" 2>/dev/null
-    fi
-}
-
-function provisioning_fix_opencv_numpy() {
-    # Diversi custom node (Easy-Use, e potenzialmente altri che usano cv2
-    # per elaborazione immagini/video) crashano con
-    # "AttributeError: _ARRAY_API not found" perche' la build di
-    # opencv-python installata e' compilata per NumPy 1.x mentre
-    # l'ambiente ha NumPy 2.x. NON tocchiamo numpy (torch se ne aspetta
-    # la versione 2.x): aggiorniamo invece opencv-python a una build
-    # recente, nativamente compatibile con NumPy 2.x.
-    printf "Updating opencv-python for NumPy 2.x compatibility...\n"
-    pip install --no-cache-dir --upgrade "opencv-python-headless>=4.10.0"
-}
-
-function provisioning_get_apt_packages() {
-    if [[ -n $APT_PACKAGES ]]; then
-        sudo "$APT_INSTALL" "${APT_PACKAGES[@]}"
-    fi
-}
-
-function provisioning_get_pip_packages() {
-    if [[ -n $PIP_PACKAGES ]]; then
-        pip install --no-cache-dir "${PIP_PACKAGES[@]}"
-    fi
-}
-
-function provisioning_get_nodes() {
-    for repo in "${NODES[@]}"; do
-        [[ -z "$repo" ]] && continue
-        dir="${repo##*/}"
-        path="/opt/ComfyUI/custom_nodes/${dir}"
-        requirements="${path}/requirements.txt"
-        if [[ -d $path ]]; then
-            if [[ ${AUTOUPDATE,,} == "true" ]]; then
-                printf "Updating node: %s...\n" "${repo}"
-                ( cd "$path" && git pull )
-                if [[ -e $requirements ]]; then
-                    pip install --no-cache-dir -r "$requirements"
-                fi
-            fi
-        else
-            printf "Downloading node: %s...\n" "${repo}"
-            git clone "${repo}" "${path}" --recursive
-            if [[ -e $requirements ]]; then
-                pip install --no-cache-dir -r "$requirements"
-            fi
-        fi
+# Costruisce URL Civitai a partire da una lista di ID separati da virgola,
+# passata come env var da RunPod, e li aggiunge all'array indicato.
+# Formato: 3117958 -> https://civitai.red/api/download/models/3117958
+function provisioning_add_ids_to_array() {
+    local -n target_array="$1"
+    local ids_string="$2"
+    [[ -z "$ids_string" ]] && return
+    case "${ids_string,,}" in
+        "replace_with_ids"|"false"|"skip"|"none") return ;;
+    esac
+    IFS=',' read -ra ids <<< "$ids_string"
+    for id in "${ids[@]}"; do
+        id="$(echo "$id" | xargs)" # trim spazi
+        [[ -z "$id" ]] && continue
+        target_array+=("https://civitai.red/api/download/models/${id}")
     done
-}
-
-# Scarica un singolo URL (se non vuoto) in una sottocartella di models/.
-# $1 = URL (puo' essere vuoto: in tal caso non fa nulla)
-# $2 = nome cartella sotto ${WORKSPACE}/storage/stable_diffusion/models/
-function provisioning_get_single_model() {
-    local url="$1"
-    local subdir="$2"
-    if [[ -z "$url" || "${url,,}" == "skip" || "$url" == *"placeholder"* ]]; then
-        return 0
-    fi
-    local dir="${WORKSPACE}/storage/stable_diffusion/models/${subdir}"
-    mkdir -p "$dir"
-    printf "Downloading to %s: %s\n" "$subdir" "$url"
-    provisioning_download "$url" "$dir"
-    printf "\n"
-}
-
-function provisioning_get_wan_models() {
-    if [[ $DISK_GB_ALLOCATED -lt $DISK_GB_REQUIRED ]]; then
-        printf "WARNING: Low disk space allocation (%sGB available, %sGB required) - downloads may fail or fill the disk!\n" "$DISK_GB_ALLOCATED" "$DISK_GB_REQUIRED"
-    fi
-    # Nomi cartella confermati da /opt/ai-dock/storage_monitor/etc/mappings.sh:
-    # unet (non "diffusion_models"), clip (non "text_encoders"), lora, vae.
-    # GIMMVFI non ha un mapping dedicato: lo mettiamo comunque sotto
-    # storage/ (cosi' resta sul Volume persistente) ma con un symlink
-    # manuale verso /opt/ComfyUI/models/gimmvfi, dato che il watcher
-    # automatico non lo gestisce.
-    provisioning_get_single_model "$URL_I2V_HIGH_NOISE" "unet"
-    provisioning_get_single_model "$URL_I2V_LOW_NOISE"  "unet"
-    provisioning_get_single_model "$URL_WAN_VAE"         "vae"
-    provisioning_get_single_model "$URL_WAN_CLIP"        "clip"
-    provisioning_get_single_model "$URL_WAN_LORA"        "lora"
-    provisioning_get_gimmvfi_model
-    provisioning_get_single_model "$URL_EXTRA_1" "$URL_EXTRA_1_DEST"
-    provisioning_get_single_model "$URL_EXTRA_2" "$URL_EXTRA_2_DEST"
-}
-
-function provisioning_get_gimmvfi_model() {
-    if [[ -z "$URL_GIMMVFI" || "${URL_GIMMVFI,,}" == "skip" ]]; then
-        return 0
-    fi
-    # Nessun mapping automatico per gimmvfi in mappings.sh: scarichiamo
-    # su storage/ (persistente) e creiamo noi il symlink verso ComfyUI.
-    local storage_dir="${WORKSPACE}/storage/stable_diffusion/models/gimmvfi"
-    local target_dir="/opt/ComfyUI/models/gimmvfi"
-    mkdir -p "$storage_dir"
-    printf "Downloading to gimmvfi: %s\n" "$URL_GIMMVFI"
-    provisioning_download "$URL_GIMMVFI" "$storage_dir"
-    mkdir -p "$(dirname "$target_dir")"
-    if [[ ! -e "$target_dir" ]]; then
-        ln -s "$storage_dir" "$target_dir"
-    fi
-    printf "\n"
-}
-
-function provisioning_print_header() {
-    printf "\n##############################################\n#                                            #\n#          Provisioning container            #\n#                                            #\n#         This will take some time           #\n#                                            #\n# Your container will be ready on completion #\n#                                            #\n##############################################\n\n"
-}
-
-function provisioning_print_end() {
-    printf "\nProvisioning complete: ComfyUI will start now\n\n"
 }
 
 function provisioning_download() {
@@ -248,8 +61,6 @@ function provisioning_download() {
     if [[ -n $auth_token && $1 =~ civitai\.(com|red) ]]; then
         # Civitai: l'header Authorization non deve essere propagato al
         # redirect verso il bucket Cloudflare R2 (causa 400 Bad Request).
-        # Risolviamo prima il redirect manualmente con il token, poi
-        # scarichiamo dall'URL pre-firmato senza alcun header extra.
         real_url=$(wget --header="Authorization: Bearer $auth_token" --max-redirect=0 "$1" 2>&1 | grep -o "Location: .*" | sed 's/Location: //' | sed 's/ \[following\]//')
         if [[ -n "$real_url" ]]; then
             wget -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$real_url"
@@ -264,4 +75,47 @@ function provisioning_download() {
     fi
 }
 
-provisioning_start
+function provisioning_get_models() {
+    local dir="$1"
+    shift
+    mkdir -p "$dir"
+    for url in "$@"; do
+        [[ -z "$url" ]] && continue
+        printf "Downloading: %s\n" "${url}"
+        provisioning_download "${url}" "${dir}"
+        printf "\n"
+    done
+}
+
+# --- 1. Clone o aggiornamento di ComfyUI ---
+mkdir -p "${WORKSPACE}"
+cd "${WORKSPACE}"
+
+if [[ ! -d "${COMFYUI_DIR}" ]]; then
+    printf "Clono ComfyUI (Comfy-Org/ComfyUI, ref: %s)...\n" "${COMFYUI_REF}"
+    git clone https://github.com/Comfy-Org/ComfyUI.git
+    cd "${COMFYUI_DIR}"
+    git checkout "${COMFYUI_REF}"
+    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r manager_requirements.txt
+else
+    printf "Aggiorno ComfyUI a ref: %s...\n" "${COMFYUI_REF}"
+    cd "${COMFYUI_DIR}"
+    git fetch --all
+    git checkout "${COMFYUI_REF}"
+    git pull origin "${COMFYUI_REF}" 2>/dev/null || true
+    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r manager_requirements.txt
+fi
+
+# --- 2. Download modelli (fissi + quelli passati via env var RunPod) ---
+provisioning_add_ids_to_array CHECKPOINT_MODELS "${CHECKPOINT_IDS_TO_DOWNLOAD}"
+provisioning_add_ids_to_array LORA_MODELS "${LORAS_IDS_TO_DOWNLOAD}"
+
+provisioning_get_models "${COMFYUI_DIR}/models/checkpoints" "${CHECKPOINT_MODELS[@]}"
+provisioning_get_models "${COMFYUI_DIR}/models/loras" "${LORA_MODELS[@]}"
+
+# --- 3. Avvio ComfyUI con Manager integrato ---
+cd "${COMFYUI_DIR}"
+printf "\nAvvio ComfyUI...\n\n"
+python main.py --listen 0.0.0.0 --port 8188 --enable-manager
