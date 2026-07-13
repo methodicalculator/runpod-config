@@ -33,6 +33,7 @@ PIP_PACKAGES=(
 EXTENSIONS=(
     "https://github.com/continue-revolution/sd-webui-segment-anything"
     "https://github.com/silveroxides/sd-webui-replacer"
+    "https://codeberg.org/Gourieff/sd-webui-reactor"
 )
 
 # --- Checkpoint (SD1.5 + SDXL, vario) ---
@@ -88,6 +89,7 @@ function provisioning_start() {
     provisioning_get_extensions
     provisioning_get_groundingdino_models
     provisioning_get_sam_models
+    provisioning_get_reactor_models
     provisioning_get_models \
         "${WORKSPACE}/storage/stable_diffusion/models/ckpt" \
         "${CHECKPOINT_MODELS[@]}"
@@ -166,6 +168,15 @@ function provisioning_get_sam_models() {
     if [[ ! -f "$dir/sam_vit_l_0b3195.pth" ]]; then
         printf "Downloading SAM model for sd-webui-segment-anything...\n"
         wget -qnc -P "$dir" "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
+    fi
+}
+
+function provisioning_get_reactor_models() {
+    dir="/opt/stable-diffusion-webui-forge/models/insightface"
+    mkdir -p "$dir"
+    if [[ ! -f "$dir/inswapper_128.onnx" ]]; then
+        printf "Downloading inswapper_128.onnx for ReActor...\n"
+        wget -qnc -P "$dir" "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
     fi
 }
 
